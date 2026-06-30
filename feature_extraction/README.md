@@ -26,8 +26,11 @@ All MRIs were processed beforehand with FreeSurfer **`recon-all`**
 (version 7.2.0). No additional registration was applied; only the
 rigid-body transforms internal to `recon-all` are used, so brain-space
 metrics are preserved. The parcellation used is the standard
-`aparc+aseg`, which provides both the 68 cortical and the 38 subcortical
-regions analyzed in the paper (106 regions total, including the left/right
+`aparc+aseg`, which provides cortical and subcortical labels. Of the 109
+regions it produces, three (left/right vessel and optic chiasm) are excluded
+because the Curvelet characterization fails in the majority of subjects,
+yielding the **106 analyzed regions** reported in the paper (68 cortical +
+38 subcortical and other non-cortical structures, including the left/right
 cerebellar cortex, FreeSurfer labels 8 and 47).
 
 ## Requirements
@@ -76,7 +79,8 @@ External dependency for the GGD fit:
 - A subject table CSV with columns
   `SUB_ID, DATASET, CENTRO_NOMBRE, EDAD, DX_GROUP`.
 - `region_names_ADHD.csv` with `region_index, region_name`
-  (FreeSurfer LUT codes for the 106 regions).
+  (FreeSurfer LUT codes; the file lists all 109 regions produced by
+  `aparc+aseg`, of which 106 are analyzed — see note above).
 
 ## Usage
 
