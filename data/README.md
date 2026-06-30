@@ -1,68 +1,91 @@
-# Data
+# Feature extraction (MATLAB)
 
-This repository does **not** include any subject-level data. The ADHD-200 and
-WMR-ADHD datasets are publicly available and must be obtained from their
-official sources, in accordance with their respective data-use terms.
+This folder contains the MATLAB pipeline that turns FreeSurfer-preprocessed
+structural MRI into the **243-dimensional Curvelet/GGD feature vector per
+brain region** used by the Python analysis code in `src/`.
 
-## Datasets
+## What it does
 
-- **ADHD-200** — http://fcon_1000.projects.nitrc.org/indi/adhd200
-- **WMR-ADHD** (Working Memory and Reward in children with and without ADHD) —
-  https://openneuro.org/datasets/ds002424/versions/1.2.0
+For every subject and every brain region:
 
-## Expected files
+1. Load the FreeSurfer `recon-all` outputs (`brainmask.nii.gz` and the
+   `aparc+aseg.nii.gz` parcellation).
+2. Build a 2D **mosaic** of the region's axial slices.
+3. Apply the **Fast Discrete Curvelet Transform** (4 scales, 16 angles)
+   via CurveLab's `fdct_wrapping` → 81 subbands per region.
+4. Fit a **Generalized Gaussian Distribution (GGD)** to each subband,
+   producing 3 parameters (alpha, beta, mu) per subband → **243 features**
+   per region (81 x 3), stored interleaved in the `curv` column.
 
-Place the following files under the directory pointed to by the `DATA_ROOT`
-environment variable (default: `./data`).
+The resulting CSV is the input expected by the Python experiments
+(e.g. `curvelet_data_adhd_raw_4scales.csv`); see `data/README.md`.
 
-### Curvelet feature tables
+## Preprocessing
 
-Two feature tables are used. **They are different files** and serve different
-scripts:
+All MRIs were processed beforehand with FreeSurfer **`recon-all`**
+(version 7.2.0). No additional registration was applied; only the
+rigid-body transforms internal to `recon-all` are used, so brain-space
+metrics are preserved. The parcellation used is the standard
+`aparc+aseg`, which provides cortical and subcortical labels. Of the 109
+regions it produces, three (left/right vessel and optic chiasm) are excluded
+because the Curvelet characterization fails in the majority of subjects,
+yielding the **106 analyzed regions** reported in the paper (68 cortical +
+38 subcortical and other non-cortical structures, including the left/right
+cerebellar cortex, FreeSurfer labels 8 and 47).
 
-| File | Columns | Used by |
-|------|---------|---------|
-| `comparison_sample/curvelet_data_adhd_raw_4scales.csv` (201) | `region_index`, `dx_group`, 243 Curvelet coefficients (`curv_1`…`curv_243`) | Experiments 1–5, LOSO |
-| `649_subjects/curvelet_data_adhd_raw_4scales.csv` | same | Experiments 1–5, LOSO |
-| `875_subjects/curvelet_data_adhd_raw_4scales.csv` | same | Experiments 1–5, LOSO |
-| `875_subjects/curvelet_data_adhd_completed_axial_4scales.csv` | the above **plus** `subject_id`, `site_id`, `sex`, `age` | sensitivity analyses |
+## Requirements
 
-The 243 coefficients are organized as 81 Curvelet subbands × 3 Generalized
-Gaussian parameters, interleaved per subband as
-`α₁, β₁, μ₁, α₂, β₂, μ₂, …` (i.e. α = columns 0,3,6,…; β = 1,4,7,…; μ = 2,5,8,…).
-`dx_group`: 0 = TDC, 1 = ADHD-C, 2 = ADHD-H, 3 = ADHD-I (binarized to 0/1 in the
-binary experiments).
+### Third-party toolboxes (NOT redistributed here — download separately)
 
-These tables are produced by the MATLAB feature-extraction code in
-`feature_extraction/` (see below).
+These are external packages with their own licenses. Download them and add
+them to the MATLAB path (the `addpath` calls at the top of the script):
 
-### Region lookup table
+- MATLAB R2021+ with the **Parallel Computing Toolbox** (`parfor`).
+- **CurveLab 2.1.3** (`fdct_wrapping_matlab`) — http://www.curvelet.org
+- **Tools for NIfTI/ANALYZE** (`load_untouch_nii`) —
+  https://www.mathworks.com/matlabcentral/fileexchange/8797
+- **Wavelet-based texture toolbox** (GGD fitting: `ggmle`, `estpdf`,
+  `sbpdf`, ...) by M. N. Do and M. Vetterli — http://www.ifp.uiuc.edu/~minhdo
+  Reference: Do & Vetterli, *Wavelet-based texture retrieval using
+  generalized Gaussian density and Kullback-Leibler distance*, IEEE Trans.
+  Image Processing, 2002. The per-subband GGD parameters (alpha, beta, mu)
+  are estimated with this package.
 
-| File | Description |
-|------|-------------|
-| `region_names_ADHD.csv` | `region_index`, `region_name` — FreeSurfer LUT codes for the 106 analyzed regions (38 subcortical + 68 cortical, including the left/right cerebellar cortex, labels 8 and 47). Required by `feature_extraction/characterization.m`. |
+### Helper functions (alongside `characterization.m`)
 
-### Phenotypic / auxiliary tables
+Included in this repository, in the same folder as the main script:
 
-| File | Description |
-|------|-------------|
-| `ADHD200phenotypics.csv` | ADHD-200 phenotypic file (DX, Age, Gender, Med Status, ScanDir ID) |
-| `participantsWMR.csv` | WMR-ADHD participants table (`participant_id`, `ADHD_diagnosis`) |
-| `medication_naive_adhdc_ids.csv` | list of medication-naive ADHD-C `subject_id`s |
-| `euler_numbers.csv`, `euler_wmr.csv`, `psnr_ssim.csv` | QC metrics generated by `src/quality_control/` |
+- `getPathFromADHD200Data.m` — resolves a subject's recon-all file path.
+- `getCollageImage.m` — dispatches to the axial mosaic builder.
+- `getCollageImageAxial_square.m` — builds the square 2D mosaic for a region.
+- `getCurveletFeatureVector.m` — fits a GGD (`ggmle`) to each subband and
+  flattens the per-subband (alpha, beta, mu) parameters into the
+  243-dimensional vector.
 
-## Feature extraction (MATLAB)
+Required by the mosaic builder (included in the `collage_utils/` toolbox
+folder and added to the path via `addpath(COLLAGE_UTILS_PATH)`):
 
-The Curvelet decomposition and Generalized Gaussian fitting that generate the
-243-coefficient feature tables are implemented in **MATLAB** under
-[`feature_extraction/`](../feature_extraction/). The entry point is
-`characterization.m`, which takes the FreeSurfer `recon-all` outputs and the
-region lookup table and writes the `curvelet_data_*.csv` feature tables
-consumed by the Python pipeline. See `feature_extraction/README.md` for
-requirements (CurveLab, NIfTI toolbox, etc.), inputs, and usage.
+- `regionCrop.m` — crops a region from a slice using the parcellation LUT.
+- `insertMatrix.m` — inserts a matrix into a larger zero-padded canvas.
 
-The two stages of this repository are therefore:
+External dependency for the GGD fit:
 
-1. **`feature_extraction/`** (MATLAB) — raw MRI → 243-dim Curvelet/GGD features.
-2. **`src/`** (Python) — features → Experiments 1–5, LOSO, sensitivity analyses,
-   and quality control.
+- `ggmle` — generalized Gaussian maximum-likelihood estimator, provided by
+  the **ToolboxWaveletTexture** dependency listed above.
+
+## Inputs (not distributed — see `data/README.md`)
+
+- FreeSurfer `recon-all` outputs per subject.
+- A subject table CSV with columns
+  `SUB_ID, DATASET, CENTRO_NOMBRE, EDAD, DX_GROUP`.
+- `region_names_ADHD.csv` with `region_index, region_name`
+  (FreeSurfer LUT codes; the file lists all 109 regions produced by
+  `aparc+aseg`, of which 106 are analyzed — see note above).
+
+## Usage
+
+Open `characterization.m`, edit the **CONFIGURATION** block at the top to
+point at your local toolbox and data paths, then run the script. All paths
+live in that block; nothing is hard-coded elsewhere. Outputs (the feature
+CSV and a `-bad-log.csv` listing any subjects/regions that failed) are
+written to `OUTPUT_PATH`.
